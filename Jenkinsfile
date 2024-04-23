@@ -34,16 +34,6 @@ pipeline {
         sh "mvn test"
       }
     }
-	  stage("Build Image with Kaniko") {
-			steps {
-				sh """
-				kaniko --dockerfile=Dockerfile \
-       --context=${WORKSPACE} \
-       --destination=${DOCKER_USER}/${APP_NAME}:${IMAGE_TAG} \
-       --no-push
-				"""
-			}
-		}
     stage("SonarQube Analysis"){
       steps {
         script {
@@ -60,14 +50,34 @@ pipeline {
         }
       }
     }
-("Trivy Scan") {
+    stage("Build & Push Docker Image") {
+      steps {
+        script {
+          docker.withRegistry('',DOCKER_PASS) {
+            docker_image = docker.build "${IMAGE_NAME}"
+          }
+          docker.withRegistry('',DOCKER_PASS) {
+            docker_image.push("${IMAGE_TAG}")
+            docker_image.push('latest')
+          }
+        }
+      }
+    }
+    stage("Trivy Scan") {
       steps {
         script {
 					sh ('docker run -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image tvenencia/testjenkins-pipeline:latest --no-progress --scanners vuln  --exit-code 0 --severity HIGH,CRITICAL --format table')
         }
       }
     }
-
+		stage ("Cleanup Artifacts") {
+			steps {
+				script {
+					sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG}"
+					sh "docker rmi ${IMAGE_NAME}:latest"
+				}
+			}
+		}
 		stage ("Trigger CD Pipeline") {
 			steps {
 				script {
